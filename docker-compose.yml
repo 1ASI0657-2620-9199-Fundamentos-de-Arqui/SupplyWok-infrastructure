@@ -1,0 +1,192 @@
+services:
+  postgres:
+    image: postgres:17
+    restart: on-failure
+    environment:
+      POSTGRES_DB: supplywok
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      IAM_DB_PASSWORD: ${IAM_DB_PASSWORD}
+      INVENTORY_DB_PASSWORD: ${INVENTORY_DB_PASSWORD}
+      OPERATIONS_DB_PASSWORD: ${OPERATIONS_DB_PASSWORD}
+      PURCHASING_DB_PASSWORD: ${PURCHASING_DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/init.sh:/docker-entrypoint-initdb.d/init.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d supplywok"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    restart: on-failure
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+    ports:
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    expose:
+      - "5672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq-init:
+    image: curlimages/curl:8.11.1
+    restart: "no"
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_MANAGEMENT_PORT: 15672
+      RABBITMQ_ADMIN_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_ADMIN_PASS: ${RABBITMQ_PASSWORD:-guest}
+      IAM_MQ_PASSWORD: ${IAM_MQ_PASSWORD}
+      INVENTORY_MQ_PASSWORD: ${INVENTORY_MQ_PASSWORD}
+      OPERATIONS_MQ_PASSWORD: ${OPERATIONS_MQ_PASSWORD}
+      PURCHASING_MQ_PASSWORD: ${PURCHASING_MQ_PASSWORD}
+    volumes:
+      - ./rabbitmq/init-users.sh:/init-users.sh:ro
+    entrypoint: ["/bin/sh", "/init-users.sh"]
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  iam-service:
+    build:
+      context: ${IAM_SOURCE:-../SupplyWok-iam-service}
+      dockerfile: Dockerfile
+    restart: on-failure
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      PORT: 8081
+      DATABASE_URL: postgres
+      DATABASE_PORT: 5432
+      DATABASE_NAME: supplywok
+      DATABASE_USER: iam_svc
+      DATABASE_PASSWORD: ${IAM_DB_PASSWORD}
+      DATABASE_SCHEMA: iam
+      JWT_SECRET: ${JWT_SECRET}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: iam_svc
+      RABBITMQ_PASSWORD: ${IAM_MQ_PASSWORD}
+      SPRING_RABBITMQ_VIRTUAL_HOST: supplywok
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      rabbitmq-init:
+        condition: service_completed_successfully
+
+  inventory-service:
+    build:
+      context: ${INVENTORY_SOURCE:-../SupplyWok-inventory-service}
+      dockerfile: Dockerfile
+    restart: on-failure
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      PORT: 8082
+      DATABASE_URL: postgres
+      DATABASE_PORT: 5432
+      DATABASE_NAME: supplywok
+      DATABASE_USER: inventory_svc
+      DATABASE_PASSWORD: ${INVENTORY_DB_PASSWORD}
+      DATABASE_SCHEMA: inventory
+      JWT_SECRET: ${JWT_SECRET}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: inventory_svc
+      RABBITMQ_PASSWORD: ${INVENTORY_MQ_PASSWORD}
+      SPRING_RABBITMQ_VIRTUAL_HOST: supplywok
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      rabbitmq-init:
+        condition: service_completed_successfully
+
+  operations-service:
+    build:
+      context: ${OPERATIONS_SOURCE:-../SupplyWok-operations-service}
+      dockerfile: Dockerfile
+    restart: on-failure
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      PORT: 8083
+      DATABASE_URL: postgres
+      DATABASE_PORT: 5432
+      DATABASE_NAME: supplywok
+      DATABASE_USER: operations_svc
+      DATABASE_PASSWORD: ${OPERATIONS_DB_PASSWORD}
+      DATABASE_SCHEMA: operations
+      JWT_SECRET: ${JWT_SECRET}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: operations_svc
+      RABBITMQ_PASSWORD: ${OPERATIONS_MQ_PASSWORD}
+      SPRING_RABBITMQ_VIRTUAL_HOST: supplywok
+      INVENTORY_SERVICE_URL: http://inventory-service:8082
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      rabbitmq-init:
+        condition: service_completed_successfully
+
+  purchasing-service:
+    build:
+      context: ${PURCHASING_SOURCE:-../SupplyWok-purchasing-service}
+      dockerfile: Dockerfile
+    restart: on-failure
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      PORT: 8084
+      DATABASE_URL: postgres
+      DATABASE_PORT: 5432
+      DATABASE_NAME: supplywok
+      DATABASE_USER: purchasing_svc
+      DATABASE_PASSWORD: ${PURCHASING_DB_PASSWORD}
+      DATABASE_SCHEMA: purchasing
+      JWT_SECRET: ${JWT_SECRET}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: purchasing_svc
+      RABBITMQ_PASSWORD: ${PURCHASING_MQ_PASSWORD}
+      SPRING_RABBITMQ_VIRTUAL_HOST: supplywok
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      rabbitmq-init:
+        condition: service_completed_successfully
+
+  api-gateway:
+    build:
+      context: ${GATEWAY_SOURCE:-../SupplyWok-api-gateway}
+      dockerfile: Dockerfile
+    restart: on-failure
+    ports:
+      - "${PORT:-8080}:8080"
+    environment:
+      PORT: 8080
+      JWT_SECRET: ${JWT_SECRET}
+      IAM_SERVICE_URL: http://iam-service:8081
+      INVENTORY_SERVICE_URL: http://inventory-service:8082
+      OPERATIONS_SERVICE_URL: http://operations-service:8083
+      PURCHASING_SERVICE_URL: http://purchasing-service:8084
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:4200}
+    depends_on:
+      - iam-service
+      - inventory-service
+      - operations-service
+      - purchasing-service
+
+volumes:
+  postgres_data:
