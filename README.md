@@ -178,3 +178,14 @@ Una vez iniciado, se puede comprobar el estado de salud en:
 http://localhost:8080/actuator/health
 ```
 El cual responderá con estado `{"status":"UP"}`.
+
+## Verificación del Sprint 2
+
+Crear una copia de .env.example en .env, usar credenciales de prueba independientes y configurar PORT=28080. El proyecto de prueba debe usar una base de datos y volúmenes independientes. Las pruebas crean usuarios e insumos sintéticos e interrumpen temporalmente RabbitMQ e Inventory.
+
+~~~sh
+docker compose -p supplywok-s2-qa up -d --build
+python qa/verify_sprint2.py --port 28080
+~~~
+
+La prueba verifica 401, 403 y aislamiento entre restaurantes, comprueba la alerta antes y después de recuperar RabbitMQ, reenvía el mismo identificador, observa el crecimiento de la DLQ y fuerza el rechazo de un evento para verificar el rollback del insumo. Mide el percentil 95 en veinte operaciones consecutivas y comprueba la disponibilidad de Operations durante una interrupción de Inventory. Ejecutar la prueba cuando los servicios estén saludables.
