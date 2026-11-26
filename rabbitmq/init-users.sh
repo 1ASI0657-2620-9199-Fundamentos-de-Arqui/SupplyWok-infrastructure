@@ -39,3 +39,17 @@ grant operations_svc "$OPERATIONS_MQ_PASSWORD" "^($EX|$OPS)\$" "^$OPS\$" "^($EX|
 grant purchasing_svc "$PURCHASING_MQ_PASSWORD" "^($EX|$PUR)\$" "^($EX|$PUR)\$" "^($EX|$PUR)\$"
 
 echo "RabbitMQ users and permissions initialized."
+
+# Use policies so existing durable queues can be upgraded without redeclaring them.
+if ! curl -fsS -u "$AUTH" "$API/permissions/$VHOST/$RABBITMQ_ADMIN_USER" >/dev/null 2>&1; then
+    curl -fsS -u "$AUTH" -X PUT "$API/permissions/$VHOST/$RABBITMQ_ADMIN_USER" \
+  -H 'content-type: application/json' -d '{"configure":"^(operations|purchasing)[.]events[.]dlq$","write":"^$","read":"^$"}' >/dev/null
+fi
+for queue in operations.events purchasing.events; do
+    curl -fsS -u "$AUTH" -X PUT "$API/queues/$VHOST/$queue.dlq" \
+      -H 'content-type: application/json' -d '{"durable":true,"auto_delete":false,"arguments":{}}' >/dev/null
+    pattern=$(printf '%s' "$queue" | sed 's/\./[.]/g')
+    curl -fsS -u "$AUTH" -X PUT "$API/policies/$VHOST/$queue-recovery" \
+      -H 'content-type: application/json' \
+      -d "{\"pattern\":\"^$pattern$\",\"apply-to\":\"queues\",\"definition\":{\"dead-letter-exchange\":\"\",\"dead-letter-routing-key\":\"$queue.dlq\"},\"priority\":1}" >/dev/null
+done

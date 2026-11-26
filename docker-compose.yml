@@ -21,6 +21,9 @@ services:
 
   rabbitmq:
     image: rabbitmq:4-management
+    hostname: rabbitmq
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
     restart: on-failure
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
@@ -59,6 +62,12 @@ services:
       context: ${IAM_SOURCE:-../SupplyWok-iam-service}
       dockerfile: Dockerfile
     restart: on-failure
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8081/actuator/health/readiness >/dev/null"]
+      interval: 10s
+      timeout: 4s
+      retries: 6
+      start_period: 45s
     environment:
       SPRING_PROFILES_ACTIVE: prod
       PORT: 8081
@@ -87,6 +96,12 @@ services:
       context: ${INVENTORY_SOURCE:-../SupplyWok-inventory-service}
       dockerfile: Dockerfile
     restart: on-failure
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8082/actuator/health/readiness >/dev/null"]
+      interval: 10s
+      timeout: 4s
+      retries: 6
+      start_period: 45s
     environment:
       SPRING_PROFILES_ACTIVE: prod
       PORT: 8082
@@ -115,6 +130,12 @@ services:
       context: ${OPERATIONS_SOURCE:-../SupplyWok-operations-service}
       dockerfile: Dockerfile
     restart: on-failure
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8083/actuator/health/readiness >/dev/null"]
+      interval: 10s
+      timeout: 4s
+      retries: 6
+      start_period: 45s
     environment:
       SPRING_PROFILES_ACTIVE: prod
       PORT: 8083
@@ -144,6 +165,12 @@ services:
       context: ${PURCHASING_SOURCE:-../SupplyWok-purchasing-service}
       dockerfile: Dockerfile
     restart: on-failure
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8084/actuator/health/readiness >/dev/null"]
+      interval: 10s
+      timeout: 4s
+      retries: 6
+      start_period: 45s
     environment:
       SPRING_PROFILES_ACTIVE: prod
       PORT: 8084
@@ -189,4 +216,5 @@ services:
       - purchasing-service
 
 volumes:
+  rabbitmq_data:
   postgres_data:
